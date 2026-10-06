@@ -3,10 +3,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from scipy.stats import pearsonr, spearmanr, norm, skew, kurtosis, jarque_bera, chi2
+from statsmodels.tsa.stattools import acf
 from pathlib import Path
 from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
 
 PROCESSED_DIR = Path("data/processed")
+
+def returns_correlations(daily_returns):
+    NLAGS = 20
+    asset = "ITUB4.SA"
+    ret_corr = acf(daily_returns[asset], nlags=NLAGS)
+
+    acf_data = []
+    for corr in ret_corr:
+        value = []
+        value.append(corr)
+        value.append(1.96/np.sqrt(len(daily_returns)))
+        value.append(1.96/np.sqrt(len(daily_returns)))
+        acf_data.append(value)
+
+    acf_df = pd.DataFrame(acf_data, columns=["ACF", "Lower Lim", "Upper Lim"])
+    print(f"ACF:\n{acf_df}")
+
 
 def concat_returns():
     dfs = []
@@ -101,6 +119,7 @@ def ibov_regression(daily_returns):
 
         model = sm.OLS(y,X)
         regression = model.fit()
+        res = regression.resid
 
         regression_params[asset] = {}
 
@@ -203,6 +222,9 @@ if __name__ == "__main__":
     ibov_regression(daily_returns)
 
     sector_regression(daily_returns)
+
+    returns_correlations(daily_returns)
+
     #plt.show()
 
     #print(pearson_r)

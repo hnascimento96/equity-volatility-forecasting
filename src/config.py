@@ -1,5 +1,5 @@
 GEMINI_MODEL = "gemini-3.8-flash"
-DATE_START = "2026-01-01"
+DATE_START = "2021-01-01"
 DATE_END   = "2026-08-31"
 
 TICKERS = {
