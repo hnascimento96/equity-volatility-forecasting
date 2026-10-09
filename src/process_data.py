@@ -63,76 +63,28 @@ def process_data():
     print("Summary")
     print(summary_df)
 
-def get_sector_indexes():
-    months = {
-        "Jan": 1,
-        "Fev": 2,
-        "Mar": 3,
-        "Abr": 4,
-        "Mai": 5,
-        "Jun": 6,
-        "Jul": 7,
-        "Ago": 8,
-        "Set": 9,
-        "Out": 10,
-        "Nov": 11,
-        "Dez": 12
-    }
-
-    dfs = []
-
-    for index in B3_SECTOR_INDEXES:
-        df = pd.read_csv(
-                RAW_DIR / f"{index.lower()}_daily_2026.csv",
-                sep=";",
-                encoding="latin1",
-                skiprows=1
-        )
-        
-        df = df[~df["Dia"].isin(["MÍNIMO", "MÁXIMO"])]
-
-        df = df.melt(
-            id_vars="Dia",
-            var_name="Mes",
-            value_name=index
-        )
-
-        df[index] = pd.to_numeric(
-            df[index]
-                .str.replace(".", "", regex=False)
-                .str.replace(",", ".", regex=False),
-            errors="coerce"
-        )
-
-        df["Mes"] = df["Mes"].map(months)
-
-        df["Date"] = pd.to_datetime(
-            {
-                "year": 2026,
-                "month": df["Mes"],
-                "day": df["Dia"]
-            },
-            errors="coerce"
-        )
-
-        df = df.set_index("Date")[[index]]
-        df.dropna(inplace=True)
-
-        dfs.append(df)
-
-    return pd.concat(dfs, axis=1)
-
-def returns_indexes():
-
-    daily_return = get_sector_indexes()
-    for index in daily_return.columns:
-        daily_return[f"{index} (log) return"] = np.log(daily_return[index] / 
-                                                           daily_return[index].shift(1))
-
-    daily_return.to_csv(PROCESSED_DIR / "sector_indexes_daily.csv")
+def add_log_returns(prices):
+    """Keep dates where every index has a value and append log returns."""
+    complete = prices.dropna()
+    dropped = len(prices) - len(complete)
+    if dropped:
+        print(f"WARNING: dropped {dropped} dates with a missing value in some index.")
+ 
+    returns = np.log(complete / complete.shift(1))
+    returns.columns = [f"{name} (log) return" for name in complete.columns]
+ 
+    table = pd.concat([complete, returns], axis=1)
+    table.index.name = "Date"
+    return table
 
 def process_sector_indexes():
-    returns_indexes()
+    prices = pd.read_csv(RAW_DIR / "sector_indexes_raw.csv", index_col="Date", parse_dates=True)
+    table = add_log_returns(prices)
+    table.to_csv(PROCESSED_DIR / "sector_indexes_daily.csv", date_format="%Y-%m-%d")
+    print(f"Saved {len(table)} rows to {PROCESSED_DIR / "sector_indexes_daily.csv"} "
+          f"({table.index[0]:%Y-%m-%d} to {table.index[-1]:%Y-%m-%d})")
+
+
 
 if __name__ == "__main__":
     process_sector_indexes()

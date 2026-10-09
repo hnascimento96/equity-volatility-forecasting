@@ -9,23 +9,6 @@ from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
 
 PROCESSED_DIR = Path("data/processed")
 
-def returns_correlations(daily_returns):
-    NLAGS = 20
-    asset = "ITUB4.SA"
-    ret_corr = acf(daily_returns[asset], nlags=NLAGS)
-
-    acf_data = []
-    for corr in ret_corr:
-        value = []
-        value.append(corr)
-        value.append(1.96/np.sqrt(len(daily_returns)))
-        value.append(1.96/np.sqrt(len(daily_returns)))
-        acf_data.append(value)
-
-    acf_df = pd.DataFrame(acf_data, columns=["ACF", "Lower Lim", "Upper Lim"])
-    print(f"ACF:\n{acf_df}")
-
-
 def concat_returns():
     dfs = []
     for name in TICKERS:
@@ -98,7 +81,7 @@ def correlation_analysis(daily_returns):
 
     pearson_r, spearman_r, pearson_p, spearman_p = [np.zeros((len(TICKERS), len(TICKERS))) for _ in range(4)]
 
-    print(daily_returns.head())
+    #print(daily_returns.head())
     for i, asset_i in enumerate(daily_returns.columns):
         for j, asset_j in enumerate(daily_returns.columns):
             pearson_r[i, j], pearson_p[i, j] = pearsonr(daily_returns[asset_i], daily_returns[asset_j])
@@ -148,7 +131,30 @@ def ibov_regression(daily_returns):
         ]
         }
 
-    print(regression_params)
+    print("-"*120)
+    print("Linear Regression: ^BVSP")
+
+    rows = {}
+    for asset, r in regression_params.items():
+        rows[asset] = {
+            "alfa": r["const"],
+            "beta": r["^BVSP"],
+            "p_alfa": r["p-value"]["const"],
+            "p_beta": r["p-value"]["^BVSP"],
+            "r2": r["r-squared"],
+            "r2_adj": r["r-squared-adj"],
+            "alfa_ic_inf": r["conf_int"]["const"][0],
+            "alfa_ic_sup": r["conf_int"]["const"][1],
+            "beta_ic_inf": r["conf_int"]["IBOV"][0],
+            "beta_ic_sup": r["conf_int"]["IBOV"][1],
+        }
+
+    df_regression = pd.DataFrame.from_dict(rows, orient="index")
+    df_regression.index.name = "asset"
+
+    print(df_regression)
+
+    return df_regression
 
 def sector_regression(daily_returns):
 
@@ -162,7 +168,11 @@ def sector_regression(daily_returns):
 
     daily_returns = daily_returns.join(sector_returns, how="inner")
 
-    regression_params = {}
+    rows = {}
+
+    rows["alpha"] = {}
+    rows["beta_bvsp"] = {}
+    rows["beta_sector"] = {}
     for asset in assets_list:
 
         sector = B3_ASSET_SECTOR_INDEX[asset]
@@ -176,41 +186,58 @@ def sector_regression(daily_returns):
         model = sm.OLS(y, X)
         regression = model.fit()
 
-        regression_params[asset] = {}
-
-        regression_params[asset]["const"] = float(regression.params["const"])
-        regression_params[asset]["^BVSP"] = float(regression.params["^BVSP"])
-        regression_params[asset][sector] = float(regression.params[sector])
-
-        p_value = regression.pvalues
-        regression_params[asset]["p-value"] = {
-            "const": float(p_value["const"]),
-            "^BVSP": float(p_value["^BVSP"]),
-            sector: float(p_value[sector])
-        }
-
-        regression_params[asset]["r-squared"] = float(regression.rsquared)
-        regression_params[asset]["r-squared-adj"] = float(regression.rsquared_adj)
-
-        # significance level: 0,05
         conf_int = regression.conf_int()
-        regression_params[asset]["conf_int"] = {
-            "const": [
-                float(conf_int.loc["const", 0]),
-                float(conf_int.loc["const", 1])
-            ],
-            "IBOV": [
-                float(conf_int.loc["^BVSP", 0]),
-                float(conf_int.loc["^BVSP", 1])
-            ],
-            sector: [
-                float(conf_int.loc[sector, 0]),
-                float(conf_int.loc[sector, 1])
-            ]
+
+        rows["alpha"][asset] = {
+            "param" : "const",
+            "alpha": float(regression.params["const"]),
+            "p_value": float(regression.pvalues["const"]),
+            "r2": float(regression.rsquared),
+            "r2_adj": float(regression.rsquared_adj),
+            "const_ic_inf": float(conf_int.loc["const", 0]),
+            "const_ic_sup": float(conf_int.loc["const", 1]),
         }
 
-    print(regression_params)
+        rows["beta_bvsp"][asset] = {
+            "param" : "^BVSP",
+            "beta": float(regression.params["^BVSP"]),
+            "p_value": float(regression.pvalues["^BVSP"]),
+            "r2": float(regression.rsquared),
+            "r2_adj": float(regression.rsquared_adj),
+            "beta_ci_lower": float(conf_int.loc["^BVSP", 0]),
+            "beta_ci_upper": float(conf_int.loc["^BVSP", 1]),
+        }
 
+        rows["beta_sector"][asset] = {
+            "param": sector,
+            "sector_beta": float(regression.params[sector]),
+            "p_value": float(regression.pvalues[sector]),
+            "r2": float(regression.rsquared),
+            "r2_adj": float(regression.rsquared_adj),
+            "sector_beta_ci_lower": float(conf_int.loc[sector, 0]),
+            "sector_beta_ci_upper": float(conf_int.loc[sector, 1]),
+        }
+
+    df_alpha = pd.DataFrame.from_dict(rows["alpha"], orient="index")
+    df_alpha.index.name = "asset"
+
+    df_beta_bvsp = pd.DataFrame.from_dict(rows["beta_bvsp"], orient="index")
+    df_beta_bvsp.index.name = "asset"
+
+    df_sector = pd.DataFrame.from_dict(rows["beta_sector"], orient="index")
+    df_sector.index.name = "asset"
+
+    print("-"*120)
+    print("Multiple Regression: Asset vs (^BVSP, Sector Index)")
+    print("\n")
+    print("const params")
+    print(df_alpha)
+    print("\n")
+    print("^BVSP params")
+    print(df_beta_bvsp)
+    print("\n")
+    print("sector index params")
+    print(df_sector)
 
 if __name__ == "__main__":
     daily_returns = concat_returns()
@@ -222,8 +249,6 @@ if __name__ == "__main__":
     ibov_regression(daily_returns)
 
     sector_regression(daily_returns)
-
-    returns_correlations(daily_returns)
 
     #plt.show()
 
