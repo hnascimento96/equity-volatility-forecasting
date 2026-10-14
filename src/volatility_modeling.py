@@ -213,6 +213,7 @@ def garch_adherence_test(res, res_params, seed=42):
     N_bootstrap = 999
     rng = np.random.default_rng(seed)
 
+    nobs = len(res["standardized_residuals"])
     A2_obs = ad_test_tstudent(res["standardized_residuals"], res_params.loc["nu", "value"])
     print(f"A2 obs: {A2_obs}")
 
@@ -237,8 +238,8 @@ def garch_adherence_test(res, res_params, seed=42):
 
         sim = sim_model.simulate(
             params=res_params["value"],
-            nobs=700,
-            burn=30
+            nobs=nobs,
+            burn=500
         )
 
         ret = sim["data"]
