@@ -8,6 +8,7 @@ from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 from pathlib import Path
 from arch import arch_model
 from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
+from src.io_utils import save_table
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
@@ -16,6 +17,18 @@ TRAIN_DATE_START = "2021-01-01"
 TRAIN_DATE_END = "2024-12-31"
 NLAGS = 20
 ALPHA_SIGNIFICANCE = 0.05
+
+def export_garch_results(res, model_name):
+    params = pd.DataFrame({"estimate": res.params, "std_err": res.std_err,
+                           "t_stat": res.tvalues, "p_value": res.pvalues})
+    params.index.name = "param"
+    save_table(params, f"params_{model_name}")
+
+    persistence = res.params["alpha[1]"] + res.params["beta[1]"]
+    fit = pd.Series({"loglik": res.loglikelihood, "aic": res.aic, "bic": res.bic,
+                     "nobs": res.nobs, "persistence": persistence,
+                     "half_life_days": np.log(0.5) / np.log(persistence)})
+    save_table(fit.to_frame("value"), f"fit_{model_name}")
 
 def acf_correlations(returns, std_error):
     
@@ -92,7 +105,8 @@ def get_correlations(returns, asset):
 def garch_training(returns, asset_name):
 
     model = arch_model(100*returns, mean="Constant", vol="GARCH", p=1, q=1, dist="normal")
-    res = model.fit(disp="off")
+    res = model.fit(disp="off", cov_type="robust")
+    export_garch_results(res, "garch_n")
 
     #Save GARCH params to .csv file
     params_df = res.params.to_frame(name="value")
