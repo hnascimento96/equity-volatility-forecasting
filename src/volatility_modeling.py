@@ -7,7 +7,9 @@ from statsmodels.tsa.stattools import acf
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 from pathlib import Path
 from arch import arch_model
+from arch.univariate import ConstantMean, GARCH, StudentsT
 from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
+
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
@@ -168,7 +170,7 @@ def residual_correlation(res, asset_name):
     print(f"Asset:{asset_name}")
     lb_test(res**2)
 
-def garch_residual_distribution(res, res_params, asset_name):
+def qq_plot_garch_std_res(res, res_params, asset_name):
     nu = res_params.loc["nu", "value"]
     scale = np.sqrt((nu-2)/nu)
 
@@ -207,13 +209,21 @@ def ad_test_tstudent(res_std, nu):
     A2 = -n - A2_sum/n
     return A2
 
-def garch_bootstrap(res, res_params):
+def garch_adherence_test(res, res_params, seed=42):
     N_bootstrap = 999
+    rng = np.random.default_rng(seed)
 
     A2_obs = ad_test_tstudent(res["standardized_residuals"], res_params.loc["nu", "value"])
     print(f"A2 obs: {A2_obs}")
 
     count_above = 0
+
+    sim_model = ConstantMean(
+        None,
+        volatility=GARCH(p=1, q=1),
+        distribution=StudentsT(seed=rng),
+    )
+            
 
     for _ in range(0, N_bootstrap):
 
@@ -225,28 +235,17 @@ def garch_bootstrap(res, res_params):
         # nobs: number of valid observations after burn
         # 
 
-        model = arch_model(
-            None,
-            mean="Constant",
-            vol="GARCH",
-            p=1,
-            q=1,
-            dist="StudentsT"
-        )
-
-        sim = model.simulate(
+        sim = sim_model.simulate(
             params=res_params["value"],
             nobs=700,
-            burn=500
+            burn=30
         )
 
-        errors = sim["errors"]
+        ret = sim["data"]
 
         # GARCH Model
-        model = arch_model(errors, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
+        model = arch_model(ret, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
         res = model.fit(disp="off")
-
-        std_innovation = errors/res.conditional_volatility
 
         # Anderson-Darling (AD) Test
 
@@ -257,15 +256,8 @@ def garch_bootstrap(res, res_params):
 
     print(f"p-value for AD: {p_value}")
     
-        
-
-
-
 def residual_analysis(res_diag, asset_name):
     residual_correlation(res_diag["standardized_residuals"], asset_name)
-    
-
-    
     
 
 if __name__== "__main__":
@@ -286,9 +278,11 @@ if __name__== "__main__":
     print(f"GARCH DF params:")
     print(garch_params)
 
-    garch_residual_distribution(garch_residual_diag, garch_params, asset)
+    qq_plot_garch_std_res(garch_residual_diag, garch_params, asset)
 
-    garch_bootstrap(garch_residual_diag, garch_params)
+    print("-"*120)
+    print("GARCH-t adherence test")
+    garch_adherence_test(garch_residual_diag, garch_params)
 
     #ad_test_tstudent(garch_residual_diag["standardized_residuals"], garch_params)
 

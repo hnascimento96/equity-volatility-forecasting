@@ -163,7 +163,8 @@ def rolling_vol_training(returns, asset_name):
     # We consider returns = residuals, since returns.mean() = 0
     res = returns
 
-    vol = res.rolling(window=ROLLING_STD_WINDOW_SIZE).std()
+    # Std from ROLLING_STD_WINDOWS SIZE previous days
+    vol = res.rolling(window=ROLLING_STD_WINDOW_SIZE).std().shift(1)
     std_res = res/vol
 
     diagnostics = pd.DataFrame({
