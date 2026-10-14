@@ -8,6 +8,7 @@ from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 from pathlib import Path
 from arch import arch_model
 from arch.univariate import ConstantMean, GARCH, StudentsT
+from src.io_utils import save_table
 from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
 
 
@@ -18,6 +19,18 @@ TRAIN_DATE_START = "2021-01-01"
 TRAIN_DATE_END = "2024-12-31"
 NLAGS = 20
 ALPHA_SIGNIFICANCE = 0.05
+
+def export_garch_results(res, model_name):
+    params = pd.DataFrame({"estimate": res.params, "std_err": res.std_err,
+                           "t_stat": res.tvalues, "p_value": res.pvalues})
+    params.index.name = "param"
+    save_table(params, f"params_{model_name}")
+
+    persistence = res.params["alpha[1]"] + res.params["beta[1]"]
+    fit = pd.Series({"loglik": res.loglikelihood, "aic": res.aic, "bic": res.bic,
+                     "nobs": res.nobs, "persistence": persistence,
+                     "half_life_days": np.log(0.5) / np.log(persistence)})
+    save_table(fit.to_frame("value"), f"fit_{model_name}")
 
 def acf_correlations(returns, std_error):
     
@@ -94,7 +107,9 @@ def get_correlations(returns, asset):
 def garch_training(returns, asset_name):
 
     model = arch_model(100*returns, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
-    res = model.fit(disp="off")
+    res = model.fit(disp="off", cov_type="robust")
+
+    export_garch_results(res, "garch_t")
 
     #Save GARCH params to .csv file
     params_df = res.params.to_frame(name="value")
@@ -245,15 +260,16 @@ def garch_adherence_test(res, res_params, seed=42):
 
         # GARCH Model
         model = arch_model(ret, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
-        fit = model.fit(disp="off")
+        fit = model.fit(disp="off", cov_type="robust")
 
         A2 = ad_test_tstudent(fit.std_resid, fit.params["nu"])
         if A2 > A2_obs: count_above += 1
 
     p_value = (1 + count_above)/(N_bootstrap + 1)
 
-    print(f"p-value for AD: {p_value}")
-
+    result = pd.Series({"A2_obs": A2_obs, "p_value": p_value, "n_bootstrap": N_bootstrap,
+                        "seed": seed, "nobs": nobs, "burn": 500})
+    save_table(result.to_frame("value"), "garch_t_ad_bootstrap")
     return p_value
     
 def residual_analysis(res_diag, asset_name):
@@ -285,8 +301,6 @@ if __name__== "__main__":
     garch_adherence_test(garch_residual_diag, garch_params)
 
     #ad_test_tstudent(garch_residual_diag["standardized_residuals"], garch_params)
-
-    plt.show()
 
     #print(f"Mean (train): {train.mean()}")
     #print(lb_test(train))
