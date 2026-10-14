@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-from scipy.stats import pearsonr, spearmanr, norm, skew, kurtosis, jarque_bera, chi2
+from scipy.stats import pearsonr, spearmanr, norm, skew, kurtosis, jarque_bera, chi2, t
 from statsmodels.tsa.stattools import acf
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 from pathlib import Path
@@ -90,11 +90,16 @@ def get_correlations(returns, asset):
     lb_test(returns**2)
 
 def garch_training(returns, asset_name):
-    TICK_NUM = 12
 
     model = arch_model(100*returns, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
     res = model.fit(disp="off")
-    res.params.to_csv(MODELS_DIR / "garch" / f"garch_{asset_name}_params.csv" )
+
+    #Save GARCH params to .csv file
+    params_df = res.params.to_frame(name="value")
+    params_df.index.name = "param"
+    #params_df = params_df.reset_index()
+    params_df.to_csv(MODELS_DIR / "garch" / f"garch_{asset_name}_params.csv")
+    
     std_res = np.asarray(res.std_resid)
 
     diagnostics = pd.DataFrame({
@@ -163,8 +168,98 @@ def residual_correlation(res, asset_name):
     print(f"Asset:{asset_name}")
     lb_test(res**2)
 
-def residual_distribution(res, asset_name):
-    pass
+def garch_residual_distribution(res, res_params, asset_name):
+    nu = res_params.loc["nu", "value"]
+    scale = np.sqrt((nu-2)/nu)
+
+
+    sm.qqplot(
+        res["standardized_residuals"],
+        dist=t,
+        distargs=(nu,),
+        loc=0,
+        scale=scale,
+        line="45"
+    )
+
+def ad_test_tstudent(res_std, nu):
+
+    sorted_res = np.sort(res_std)
+    scale = np.sqrt((nu-2)/nu)
+
+    # Generates a CDF for t-student with res_params
+    F = t.cdf(
+        sorted_res,
+        df = nu,
+        loc = 0,
+        scale=scale
+    )
+
+    n = len(sorted_res)
+    A2_sum = 0
+
+    for i in range(1, n + 1):
+        A2_sum += (2 * i - 1) * (
+            np.log(F[i - 1]) +
+            np.log(1 - F[n - i])
+        )
+
+    A2 = -n - A2_sum/n
+    return A2
+
+def garch_bootstrap(res, res_params):
+    N_bootstrap = 999
+
+    A2_obs = ad_test_tstudent(res["standardized_residuals"], res_params.loc["nu", "value"])
+    print(f"A2 obs: {A2_obs}")
+
+    count_above = 0
+
+    for _ in range(0, N_bootstrap):
+
+        # Generates unconditional volatility observations \sigma_t satisfying 
+        # \sigma_t^2 = \omega + \alpha \epsilon_{t-1}^2 + \beta \sigma_{t-1}^2,
+        # with \epsilon_t innovations from a t-student distribution with Var(\epsilon_t) = 1
+        # 
+        # burn: drops out first 'burn' observations
+        # nobs: number of valid observations after burn
+        # 
+
+        model = arch_model(
+            None,
+            mean="Constant",
+            vol="GARCH",
+            p=1,
+            q=1,
+            dist="StudentsT"
+        )
+
+        sim = model.simulate(
+            params=res_params["value"],
+            nobs=700,
+            burn=500
+        )
+
+        errors = sim["errors"]
+
+        # GARCH Model
+        model = arch_model(errors, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
+        res = model.fit(disp="off")
+
+        std_innovation = errors/res.conditional_volatility
+
+        # Anderson-Darling (AD) Test
+
+        A2 = ad_test_tstudent(res.std_resid, res.params["nu"])
+        if A2 > A2_obs: count_above += 1
+
+    p_value = (1 + count_above)/(N_bootstrap + 1)
+
+    print(f"p-value for AD: {p_value}")
+    
+        
+
+
 
 def residual_analysis(res_diag, asset_name):
     residual_correlation(res_diag["standardized_residuals"], asset_name)
@@ -184,8 +279,18 @@ if __name__== "__main__":
 
     garch_training(train, asset)
 
-    residual_diagnostics = pd.read_csv(MODELS_DIR / "garch" / f"garch_{asset}_diagnostics.csv")
-    residual_analysis(residual_diagnostics, asset)
+    garch_residual_diag = pd.read_csv(MODELS_DIR / "garch" / f"garch_{asset}_diagnostics.csv")
+    residual_analysis(garch_residual_diag, asset)
+
+    garch_params = pd.read_csv(MODELS_DIR / "garch" / f"garch_{asset}_params.csv", index_col="param" )
+    print(f"GARCH DF params:")
+    print(garch_params)
+
+    garch_residual_distribution(garch_residual_diag, garch_params, asset)
+
+    garch_bootstrap(garch_residual_diag, garch_params)
+
+    #ad_test_tstudent(garch_residual_diag["standardized_residuals"], garch_params)
 
     plt.show()
 
