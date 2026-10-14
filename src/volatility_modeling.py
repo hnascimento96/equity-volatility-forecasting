@@ -215,7 +215,6 @@ def garch_adherence_test(res, res_params, seed=42):
 
     nobs = len(res["standardized_residuals"])
     A2_obs = ad_test_tstudent(res["standardized_residuals"], res_params.loc["nu", "value"])
-    print(f"A2 obs: {A2_obs}")
 
     count_above = 0
 
@@ -246,16 +245,16 @@ def garch_adherence_test(res, res_params, seed=42):
 
         # GARCH Model
         model = arch_model(ret, mean="Constant", vol="GARCH", p=1, q=1, dist="t")
-        res = model.fit(disp="off")
+        fit = model.fit(disp="off")
 
-        # Anderson-Darling (AD) Test
-
-        A2 = ad_test_tstudent(res.std_resid, res.params["nu"])
+        A2 = ad_test_tstudent(fit.std_resid, fit.params["nu"])
         if A2 > A2_obs: count_above += 1
 
     p_value = (1 + count_above)/(N_bootstrap + 1)
 
     print(f"p-value for AD: {p_value}")
+
+    return p_value
     
 def residual_analysis(res_diag, asset_name):
     residual_correlation(res_diag["standardized_residuals"], asset_name)
