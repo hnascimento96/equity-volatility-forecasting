@@ -9,7 +9,7 @@ from pathlib import Path
 from arch import arch_model
 from arch.univariate import ConstantMean, GARCH, StudentsT
 from src.io_utils import save_table, save_forecast
-from src.config import TICKERS, B3_ASSET_SECTOR_INDEX, DECAY_FACTOR_EWMA
+from src.config import TICKERS, B3_ASSET_SECTOR_INDEX, DECAY_FACTOR_EWMA, ROLLING_WINDOW_SIZE
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
@@ -163,6 +163,29 @@ def ewma_forecast(asset="PETR4.SA"):
 
     print("Forecast ewma (first 10 days)")
     print(forecast_df.head(10))
+
+def rolling_forecast():
+
+    data = pd.read_csv(PROCESSED_DIR / f"PETR4.SA_daily.csv", index_col="Date", parse_dates=True)
+
+    # Take last date values
+    diag_data = pd.read_csv(MODELS_DIR / "rolling_volatility" / "rolling_vol_PETR4.SA_diagnostics.csv",
+                            parse_dates=True
+                            )
+    yesterday_date = diag_data.iloc[-1]["Date"]
+
+    forecast_vol = {}
+    forecast_vol["date"] = data[data.index > yesterday_date].index.to_list()
+    forecast_vol["return"] = data[data.index > yesterday_date]["Daily log-return"].to_list()
+    ahead_var = data["Daily log-return"].rolling(window=ROLLING_WINDOW_SIZE).var()
+    forecast_vol["sigma2"] = ahead_var.shift(1)[ahead_var.index > yesterday_date].to_list()
+
+    forecast_df = pd.DataFrame(forecast_vol).set_index("date")
+    save_forecast(forecast_df, name="rolling_vol")
+
+    print("Forecast rolling volatility (first 10 days)")
+    print(forecast_df.head(10))
+
 
     
 

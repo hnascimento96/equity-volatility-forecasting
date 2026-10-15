@@ -7,7 +7,7 @@ from statsmodels.tsa.stattools import acf
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 from pathlib import Path
 from arch import arch_model
-from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
+from src.config import TICKERS, B3_ASSET_SECTOR_INDEX, ROLLING_STD_WINDOW_SIZE
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
@@ -16,8 +16,6 @@ TRAIN_DATE_START = "2021-01-01"
 TRAIN_DATE_END = "2024-12-31"
 NLAGS = 20
 ALPHA_SIGNIFICANCE = 0.05
-
-ROLLING_STD_WINDOW_SIZE = 21
 
 def acf_correlations(returns, std_error):
     
