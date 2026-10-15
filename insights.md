@@ -1,0 +1,1 @@
+### The conditional distribution may affect variance forecasts not only through quantiles but also through parameter estimation, since the Student-t likelihood is less sensitive to extreme returns.
