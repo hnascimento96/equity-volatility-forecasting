@@ -9,10 +9,7 @@ from pathlib import Path
 from arch import arch_model
 from arch.univariate import ConstantMean, GARCH, StudentsT
 from src.io_utils import save_table, save_forecast
-from src.config import TICKERS, B3_ASSET_SECTOR_INDEX
-
-import warnings
-from arch.utility.exceptions import StartingValueWarning
+from src.config import TICKERS, B3_ASSET_SECTOR_INDEX, DECAY_FACTOR_EWMA
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
@@ -22,8 +19,16 @@ TRAIN_DATE_END = "2024-12-31"
 
 TOL = 1e-6
 
+# Parameters alpha, beta, 
+def garch_forecast(dist, name):
 
-def garch_forecast(data, count_train_days, dist, name):
+    asset = "PETR4.SA"
+    data = pd.read_csv(PROCESSED_DIR / f"{asset}_daily.csv", index_col="Date", parse_dates=True)
+    data_returns = data["Daily log-return"].dropna()
+    train = data_returns.loc[TRAIN_DATE_START:TRAIN_DATE_END]
+    count_train_days = len(train)
+    data_rst = data_returns.reset_index()
+    data = data_rst
 
     forecast_vol = {}
     forecast_vol["date"] = []
@@ -96,7 +101,7 @@ def garch_forecast(data, count_train_days, dist, name):
 
     forecast_df = pd.DataFrame(forecast_vol).set_index("date")
 
-    save_forecast(forecast_df, "garch_t")
+    save_forecast(forecast_df, name)
 
     # Summary of GARCH(1,1)-t convergence
     summary = pd.Series({
@@ -124,26 +129,41 @@ def garch_forecast(data, count_train_days, dist, name):
 
     return summary
 
-if __name__ == "__main__":
-    asset = "PETR4.SA"
-    
-    data = pd.read_csv(PROCESSED_DIR / f"{asset}_daily.csv", index_col="Date", parse_dates=True)
+def ewma_forecast(asset="PETR4.SA"):
 
-    data_returns = data["Daily log-return"].dropna()
-    train = data_returns.loc[TRAIN_DATE_START:TRAIN_DATE_END]
+    # Take last date values
+    diag_data = pd.read_csv(MODELS_DIR / "ewma" / "ewma_PETR4.SA_diagnostics.csv",
+                            parse_dates=True
+                            )
+    yesterday_date = diag_data.iloc[-1]["Date"]
+    yesterday_return = diag_data.iloc[-1]["returns"]
+    yesterday_var = diag_data.iloc[-1]["conditional_volatility"]**2
 
-    count_train_days = len(train)
+    test_data = pd.read_csv(PROCESSED_DIR / f"PETR4.SA_daily.csv", index_col="Date", parse_dates=True)
+    test_data = test_data[test_data.index > yesterday_date]
 
-    data_rst = data_returns.reset_index()
+    forecast_ewma = {}
+    forecast_ewma["date"] = []
+    forecast_ewma["return"] = []
+    forecast_ewma["sigma2"] = []
 
-    print("-"*120)
-    print("GARCH(1,1)-normal forecast analysis")
+    for date in test_data.index.to_list():
+        variance = DECAY_FACTOR_EWMA*yesterday_var + (1 - DECAY_FACTOR_EWMA)*yesterday_return**2
 
-    summary_garch_n = garch_forecast(data_rst, count_train_days, dist="normal", name="garch_n")
+        forecast_ewma["date"].append(date)
+        forecast_ewma["return"].append(test_data.loc[date, "Daily log-return"])
+        forecast_ewma["sigma2"].append(variance)
+        
+        yesterday_date = date
+        yesterday_return = test_data.loc[date, "Daily log-return"]
+        yesterday_var = variance
 
-    print("-"*120)
-    print("GARCH(1,1)-t forecast analysis")
-    summary_garch_t = garch_forecast(data_rst, count_train_days, dist="t", name="garch_t")
+    forecast_df = pd.DataFrame(forecast_ewma).set_index("date")
+    save_forecast(forecast_df, name="ewma")
+
+    print("Forecast ewma (first 10 days)")
+    print(forecast_df.head(10))
+
     
 
     
